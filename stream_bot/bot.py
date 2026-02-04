@@ -11,14 +11,24 @@ API_HASH = os.environ.get("API_HASH", "")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 PORT = int(os.environ.get("PORT", 8080))
 
+# --- LOGGING ---
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # --- SETUP ---
 app = Client("my_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 routes = web.RouteTableDef()
 file_map = {} # Stores message locations in memory
 
 # --- TELEGRAM HANDLER ---
+@app.on_message(filters.command("start"))
+async def start_handler(client, message):
+    logger.info(f"Start command received from {message.chat.id}")
+    await message.reply_text("👑 **I am alive, Princess!**\n\nForward me a video to get a stream link.")
+
 @app.on_message(filters.private & (filters.document | filters.video | filters.audio))
 async def msg_handler(client, message):
+    logger.info(f"File received from {message.chat.id}")
     # We use a unique ID to map the file request to this specific message
     unique_id = f"{message.chat.id}_{message.id}"
     file_map[unique_id] = message
