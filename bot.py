@@ -11,14 +11,31 @@ API_HASH = os.environ.get("API_HASH", "")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 PORT = int(os.environ.get("PORT", 8080))
 
+# --- LOGGING ---
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # --- SETUP ---
 app = Client("my_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 routes = web.RouteTableDef()
 file_map = {} # Stores message locations in memory
 
+# --- STARTUP HELPER ---
+async def on_startup(web_app):
+    await app.start()
+    logger.info("Bot Started! Ready to serve, Princess.")
+    yield
+    await app.stop()
+
 # --- TELEGRAM HANDLER ---
+@app.on_message(filters.command("start"))
+async def start_handler(client, message):
+    logger.info(f"Start command received from {message.chat.id}")
+    await message.reply_text("👑 **I am alive, Princess!**\n\nForward me a video to get a stream link.")
+
 @app.on_message(filters.private & (filters.document | filters.video | filters.audio))
 async def msg_handler(client, message):
+    logger.info(f"File received from {message.chat.id}")
     # We use a unique ID to map the file request to this specific message
     unique_id = f"{message.chat.id}_{message.id}"
     file_map[unique_id] = message
@@ -31,7 +48,7 @@ async def msg_handler(client, message):
     download_link = f"{host_url}/stream/{unique_id}"
     
     await message.reply_text(
-        f"� **Your Link is Ready, Princess!**\n\n"
+        f"👑 **Your Link is Ready, Princess!**\n\n"
         f"📂 **File:** `{message.document.file_name if message.document else 'Video.mp4'}`\n"
         f"🔗 **Link:** `{download_link}`\n\n"
         f"✨ *Wait, Princess! Link is ready to be forwarded!*"
@@ -68,11 +85,8 @@ async def stream_handler(request):
 
 # --- RUNNER ---
 if __name__ == "__main__":
-    # Start Telegram Client
-    app.start()
-    print("Bot Started! Ready to serve, Princess.")
-    
-    # Start Web Server
+    # Start Web Server with Pyrogram attached
     web_app = web.Application()
     web_app.add_routes(routes)
+    web_app.cleanup_ctx.append(on_startup)
     web.run_app(web_app, port=PORT)
