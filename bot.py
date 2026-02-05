@@ -77,7 +77,9 @@ async def start_telegram_client(web_app):
     """Starts Telegram when the Web Server starts"""
     logger.info("Starting Telegram Client...")
     await app.start()
-    logger.info("Telegram Client Started!")
+    me = await app.get_me()
+    logger.info(f"✅ BOT STARTED: @{me.username} (ID: {me.id})")
+    logger.info("Ready to receive messages!")
 
 async def stop_telegram_client(web_app):
     """Stops Telegram when the Web Server stops"""
