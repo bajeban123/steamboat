@@ -2,6 +2,7 @@ import os
 import logging
 import asyncio
 from pyrogram import Client, filters, idle
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiohttp import web
 
 # --- CONFIGURATION ---
@@ -14,8 +15,6 @@ PORT = int(os.environ.get("PORT", 8080))
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-
 # --- SETUP ---
 app = Client("my_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 routes = web.RouteTableDef()
@@ -25,22 +24,27 @@ file_map = {}
 @app.on_message(filters.command("start"))
 async def start_handler(client, message):
     logger.info(f"Start command from {message.chat.id}")
-    await message.reply_text("Hi Princess 👑\n\nForward me a video to get started!")
+    await message.reply_text(
+        "**Hello my Princess!** 👑✨\n\n"
+        "I am awake and ready to serve you! 🙇\n"
+        "Forward me any video, and I will make a magic link for you! 🪄"
+    )
 
 @app.on_message(filters.private & (filters.document | filters.video | filters.audio))
 async def msg_handler(client, message):
     unique_id = f"{message.chat.id}_{message.id}"
     file_map[unique_id] = message
     
-    # Ask for Quality (Fake Selector)
+    # "Princess" Feature 1: Fake Quality Selector
     buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("360p", callback_data=f"q|360|{unique_id}"),
-         InlineKeyboardButton("720p", callback_data=f"q|720|{unique_id}")],
-        [InlineKeyboardButton("1080p", callback_data=f"q|1080|{unique_id}")]
+        [InlineKeyboardButton("✨ 360p (Data Saver)", callback_data=f"q|360|{unique_id}"),
+         InlineKeyboardButton("💎 720p (HD)", callback_data=f"q|720|{unique_id}")],
+        [InlineKeyboardButton("👑 1080p (Royal)", callback_data=f"q|1080|{unique_id}")]
     ])
     
     await message.reply_text(
-        "✨ **Video Received!**\n\nSelect your preferred quality, Princess:",
+        "**Ooh! A video for me?** 🎀\n\n"
+        "How would Your Highness like to watch this today?",
         reply_markup=buttons
     )
 
@@ -49,26 +53,26 @@ async def callback_handler(client, callback_query):
     data = callback_query.data
     
     if data.startswith("q|"):
-        # Stage 1: Quality Selected -> Ask Batu Verification
         _, quality, unique_id = data.split("|")
         
+        # "Princess" Feature 2: Cheeky Verification
         buttons = InlineKeyboardMarkup([
-            [InlineKeyboardButton("YES! 💪", callback_data=f"a|yes|{unique_id}"),
-             InlineKeyboardButton("No... 😢", callback_data=f"a|no|{unique_id}")]
+            [InlineKeyboardButton("YES! He is! 💪❤️", callback_data=f"a|yes|{unique_id}"),
+             InlineKeyboardButton("No... 🙈", callback_data=f"a|no|{unique_id}")]
         ])
         
         await callback_query.edit_message_text(
-            f"Processing {quality}p...\n\nWait! One verification required...\n**Do you agree Batu is powerful?** 💪",
+            f"Preparing {quality}p version... 🪄\n\n"
+            "**Wait! Just one tiny security check...** 🛡️\n\n"
+            "**Do you agree Batu is the strongest?** 🦁",
             reply_markup=buttons
         )
     
     elif data.startswith("a|"):
-        # Stage 2: Verification Answered -> Give Link
         _, answer, unique_id = data.split("|")
         
-        # Check if file still exists in memory
         if unique_id not in file_map:
-            await callback_query.answer("Link expired or bot restarted.", show_alert=True)
+            await callback_query.answer("Oh no! This link expired 🥺 Send it again?", show_alert=True)
             return
 
         message_ref = file_map[unique_id]
@@ -82,22 +86,23 @@ async def callback_handler(client, callback_query):
         elif message_ref.audio:
             file_name = getattr(message_ref.audio, 'file_name', 'Audio.mp3')
 
-        # Generate Link
         host_url = os.environ.get("RENDER_EXTERNAL_URL", f"http://localhost:{PORT}")
         download_link = f"{host_url}/stream/{unique_id}"
         
         if answer == "yes":
             text = (
-                f"� **Access Granted, Princess!**\n\n"
-                f"� **File:** `{file_name}`\n"
-                f"🔗 **Link:** `{download_link}`\n\n"
-                f"✨ Enjoy your movie!"
+                f"**Correct Answer!** 👑✨\n\n"
+                f"Here is your Royal Link, my Princess:\n"
+                f"🔗 `{download_link}`\n\n"
+                f"📂 `{file_name}`\n"
+                f"Enjoy your movie! 🍿🎬"
             )
         else:
             text = (
-                f"Aww sad 😢 anyway here's your link princess...\n\n"
-                f"📂 **File:** `{file_name}`\n"
-                f"🔗 **Link:** `{download_link}`"
+                f"**Wrong answer...** 🥺\n"
+                f"But I love you anyway, so here is your link:\n"
+                f"🔗 `{download_link}`\n\n"
+                f"Next time say Yes! 😤❤️"
             )
             
         await callback_query.edit_message_text(text)
@@ -113,25 +118,68 @@ async def stream_handler(request):
     media = message.document or message.video or message.audio
     file_name = getattr(media, 'file_name', 'video.mp4') or 'video.mp4'
     file_size = media.file_size
+    mime_type = getattr(media, 'mime_type', 'application/octet-stream') or 'application/octet-stream'
+
+    # --- RESUMABLE DOWNLOADS (Range Header Support) ---
+    range_header = request.headers.get("Range")
+    offset = 0
+    length = file_size
+    status_code = 200
+
+    if range_header:
+        try:
+            # Parse Range: bytes=1000-
+            parts = range_header.replace("bytes=", "").split("-")
+            start_byte = int(parts[0]) if parts[0] else 0
+            end_byte = int(parts[1]) if parts[1] else file_size - 1
+            
+            # Adjust offset and length
+            offset = start_byte
+            length = (end_byte - start_byte) + 1
+            status_code = 206 # Partial Content
+        except ValueError:
+            pass # Fallback to full file if parsing fails
 
     headers = {
-        'Content-Type': 'application/octet-stream',
+        'Content-Type': mime_type,
         'Content-Disposition': f'attachment; filename="{file_name}"',
-        'Content-Length': str(file_size)
+        'Accept-Ranges': 'bytes',
+        'Content-Length': str(length),
     }
 
-    response = web.StreamResponse(status=200, reason='OK', headers=headers)
+    if status_code == 206:
+        headers['Content-Range'] = f'bytes {offset}-{offset + length - 1}/{file_size}'
+
+    response = web.StreamResponse(status=status_code, reason='Partial Content' if status_code == 206 else 'OK', headers=headers)
     await response.prepare(request)
 
+    # --- STREAMING LOGIC ---
+    # FUTURE UPGRADE: Insert FFmpeg piping here if we switch to VPS
+    # For now, we stream directly from Telegram (Original Quality)
+    
+    chunk_size = 1024 * 1024 # 1MB chunks
+    start_chunk_index = offset // chunk_size
+    skip_bytes = offset % chunk_size
+    
     try:
-        async for chunk in app.stream_media(message, limit=0, offset=0):
-            await response.write(chunk)
+        first_chunk = True
+        async for chunk in app.stream_media(message, limit=0, offset=start_chunk_index):
+            if first_chunk:
+                if skip_bytes:
+                    await response.write(chunk[skip_bytes:]) # Write partial chunk
+                else:
+                    await response.write(chunk)
+                first_chunk = False
+            else:
+                await response.write(chunk)
+                
     except Exception as e:
-        logger.error(f"Error streaming: {e}")
+        # Client disconnected (Normal behavior)
+        pass 
     
     return response
 
-# --- MAIN RUNNER (THE FIX) ---
+# --- MAIN RUNNER ---
 async def start_services():
     logger.info("Starting Telegram Client...")
     await app.start()
@@ -147,10 +195,10 @@ async def start_services():
     await site.start()
     logger.info(f"✅ Web Server running on port {PORT}")
 
-    # Keep the program running
+    # Keep program alive
     await idle()
     
-    # Cleanup on Stop
+    # Cleanup
     await app.stop()
 
 if __name__ == "__main__":
